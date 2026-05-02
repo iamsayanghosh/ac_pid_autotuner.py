@@ -7,7 +7,9 @@ AC temperature PID controller simulation with Twiddle-based auto-tuning.
 - Auto-tunes Kp, Ki, Kd using the Twiddle (coordinate ascent) algorithm
 - Minimises a cost function balancing tracking error and energy consumption
 - Plots temperature, error, power, and energy over time
+## Simulation Output
 
+![Simulation Output](ac_pid_autotuner_output.png)
 ## Requirements
 - Python 3.x
 - matplotlib
