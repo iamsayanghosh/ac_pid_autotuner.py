@@ -153,6 +153,84 @@ def sim_cost(Kp, Ki, Kd, Tset):
     return _run_sim(Kp, Ki, Kd, Tset, record=False)
 
 
+# ── performance metrics ──────────────────────────────────────────────────────
+
+def compute_metrics(time_list, temp_list, Tset, T_initial):
+    """
+    Compute standard control system performance metrics from simulation data.
+
+    Definitions used:
+        Rise Time     — time for temperature to first cross the setpoint.
+        Settling Time — first time the temperature enters and stays within
+                        ±2% of the total change (settling band) for at least
+                        50 consecutive samples (~5 s at dt=0.1).
+        Overshoot     — peak deviation beyond the setpoint, expressed as a
+                        percentage of the total reference change. For a
+                        cooling scenario (T_initial > Tset) overshoot means
+                        the temperature drops below Tset; for heating it
+                        rises above.
+
+    Parameters
+    ----------
+    time_list : list of float
+        Simulation time points (s).
+    temp_list : list of float
+        Temperature at each time point (°C).
+    Tset : float
+        Setpoint temperature (°C).
+    T_initial : float
+        Initial temperature at t=0 (°C).
+
+    Returns
+    -------
+    dict with keys:
+        'rise_time'     : float or None  (s)
+        'settling_time' : float or None  (s)
+        'overshoot_pct' : float          (%)
+    """
+    total_change = abs(Tset - T_initial)
+    band = 0.02 * total_change          # ±2% settling band
+    cooling = T_initial > Tset          # True if system needs to cool down
+
+    rise_time     = None
+    settling_time = None
+    settle_count  = 0
+    settle_needed = 50                  # consecutive samples inside band (~5 s)
+
+    for i, (t, T) in enumerate(zip(time_list, temp_list)):
+        # Rise time: first crossing of the setpoint
+        if rise_time is None:
+            if cooling and T <= Tset:
+                rise_time = t
+            elif not cooling and T >= Tset:
+                rise_time = t
+
+        # Settling time: first entry into the ±2% band that never leaves
+        if abs(T - Tset) <= band:
+            settle_count += 1
+            if settle_count >= settle_needed and settling_time is None:
+                # Record the time when the streak started
+                settling_time = time_list[i - settle_needed + 1]
+        else:
+            settle_count = 0            # Reset streak on any band exit
+
+    # Overshoot: peak exceedance beyond the setpoint (% of total change)
+    if cooling:
+        # Undershoot = temp dips below Tset
+        peak_error = Tset - min(temp_list)
+    else:
+        # Overshoot = temp rises above Tset
+        peak_error = max(temp_list) - Tset
+
+    overshoot_pct = max(0.0, (peak_error / total_change) * 100)
+
+    return {
+        'rise_time':     rise_time,
+        'settling_time': settling_time,
+        'overshoot_pct': overshoot_pct,
+    }
+
+
 # ── twiddle optimizer ────────────────────────────────────────────────────────
 
 def twiddle(Tset, tol=0.01):
@@ -230,7 +308,7 @@ if __name__ == "__main__":
 
     # Auto-tune gains for the given setpoint
     Kp_opt, Ki_opt, Kd_opt = twiddle(Tset)
-    print("Optimized PID:")
+    print("\nOptimized PID:")
     print("Kp =", Kp_opt)
     print("Ki =", Ki_opt)
     print("Kd =", Kd_opt)
@@ -241,12 +319,34 @@ if __name__ == "__main__":
         Kp_opt, Ki_opt, Kd_opt, Tset
     )
 
+    # ── performance metrics ───────────────────────────────────────────────────
+    T_initial = 35.0    # Must match the initial T inside _run_sim
+    metrics = compute_metrics(time_list, temp_list, Tset, T_initial)
+
+    print("\nControl Performance Metrics:")
+    if metrics['rise_time']:
+        print(f"  Rise Time     : {metrics['rise_time']:.2f} s")
+    else:
+        print("  Rise Time     : not reached")
+    if metrics['settling_time']:
+        print(f"  Settling Time : {metrics['settling_time']:.2f} s")
+    else:
+        print("  Settling Time : not reached")
+    print(f"  Overshoot     : {metrics['overshoot_pct']:.3f} %")
+
     # ── plot ─────────────────────────────────────────────────────────────────
     plt.figure(figsize=(10, 8))
 
     plt.subplot(4, 1, 1)
     plt.plot(time_list, temp_list)
     plt.axhline(y=Tset, color='r', linestyle='--', label=f'Setpoint ({Tset}°C)')
+    # Mark rise time and settling time on the temperature plot
+    if metrics['rise_time']:
+        plt.axvline(x=metrics['rise_time'], color='g', linestyle=':',
+                    label=f"Rise Time ({metrics['rise_time']:.1f}s)")
+    if metrics['settling_time']:
+        plt.axvline(x=metrics['settling_time'], color='orange', linestyle=':',
+                    label=f"Settling Time ({metrics['settling_time']:.1f}s)")
     plt.ylabel("Temperature")
     plt.title("Temperature vs Time (PID Control)")
     plt.legend()
