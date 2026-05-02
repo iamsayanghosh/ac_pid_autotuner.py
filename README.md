@@ -15,9 +15,12 @@ AC temperature PID controller simulation with Twiddle-based auto-tuning.
 - matplotlib
 
 ## Install & Run
+```
 pip install matplotlib
+```
+```
 python ac_pid_autotuner.py
-
+```
 ## Optimised Gains (example at 23°C setpoint)
 - Kp = 2.655
 - Ki = 0.096
